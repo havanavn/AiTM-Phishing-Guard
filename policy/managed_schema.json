@@ -1,0 +1,97 @@
+{
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "title": "Kill switch",
+      "description": "false = tắt toàn bộ phát hiện/cảnh báo ngay lập tức (dùng khi false positive hàng loạt). Mặc định true.",
+      "type": "boolean"
+    },
+    "blockMode": {
+      "title": "Chế độ xử lý",
+      "description": "'report' = im lặng chỉ telemetry (pilot); 'warn' = overlay cho phép đóng; 'block' = interstitial chặn hẳn.",
+      "type": "string",
+      "enum": [
+        "report",
+        "warn",
+        "block"
+      ]
+    },
+    "deviceCodeMode": {
+      "title": "Cảnh báo trang device code (host Microsoft thật)",
+      "description": "'off' = tắt; 'warn' = overlay đỏ + nút 'Tôi hiểu rủi ro' để hiện trang nhập mã (mặc định); 'block' = overlay không có nút chấp nhận.",
+      "type": "string",
+      "enum": [
+        "off",
+        "warn",
+        "block"
+      ]
+    },
+    "behaviorMode": {
+      "title": "Cảnh báo hành vi exfil (ngoài O365)",
+      "description": "'warn' = cảnh báo soft khi phát hiện gửi credential cross-origin / kênh exfil / keystroke streaming (mặc định); 'off' = tắt. Không có chế độ block cứng cho heuristic tổng quát.",
+      "type": "string",
+      "enum": [
+        "off",
+        "warn"
+      ]
+    },
+    "behaviorAllowlist": {
+      "title": "Domain gốc bỏ qua cho phát hiện hành vi",
+      "description": "eTLD+1 mà tổ chức tin cậy nhận dữ liệu form hợp lệ (vd nhà cung cấp analytics/CRM nội bộ). Bổ sung ngoài danh sách tích hợp sẵn.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "trustedAuthDomains": {
+      "title": "Domain đăng nhập tin cậy bổ sung",
+      "description": "Khai HOST cụ thể, không khai apex.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "orgIdpDomains": {
+      "title": "Host IdP/SSO nội bộ",
+      "description": "Vd: adfs.vingroup.net, sso.vingroup.net. Khai HOST cụ thể — khai apex (vingroup.net) sẽ bị extension cảnh báo cấu hình.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "detectionThreshold": {
+      "title": "Ngưỡng điểm vân tay",
+      "description": "Mặc định 6. Không nên < 4.",
+      "type": "integer"
+    },
+    "safePortalUrl": {
+      "title": "Cổng đăng nhập chính thức",
+      "description": "URL đưa user về khi bấm 'Đi tới cổng đăng nhập chính thức'. Mặc định https://login.microsoftonline.com/",
+      "type": "string"
+    },
+    "reportingEndpoint": {
+      "title": "Endpoint telemetry SOC/SIEM",
+      "description": "URL HTTPS nhận POST JSON.",
+      "type": "string"
+    },
+    "telemetrySecret": {
+      "title": "Secret ký HMAC telemetry",
+      "description": "Chuỗi bí mật; extension gửi header X-AiTM-Signature = sha256(HMAC(secret, ts + '.' + body)). Server phải verify.",
+      "type": "string"
+    },
+    "deviceId": {
+      "title": "Định danh thiết bị",
+      "description": "Asset tag / Intune device ID / hostname — để SOC biết máy nào bị phish.",
+      "type": "string"
+    },
+    "userId": {
+      "title": "Định danh người dùng",
+      "description": "UPN hoặc mã nhân viên (GPO Preferences có thể dùng biến môi trường %USERNAME%).",
+      "type": "string"
+    },
+    "helpdeskContact": {
+      "title": "Đầu mối IT Helpdesk hiển thị trên cảnh báo",
+      "type": "string"
+    }
+  }
+}

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trang bị chặn – VinSOC AiTM Phishing Guard</title>
+<style>
+  html,body{margin:0;height:100%;background:#7a0a14;font-family:'Segoe UI',Roboto,Arial,sans-serif;}
+  .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
+  .card{max-width:680px;width:100%;background:#fff;border-top:10px solid #c50f1f;border-radius:10px;padding:32px 36px;box-shadow:0 10px 40px rgba(0,0,0,.5);}
+  .badge{display:inline-block;background:#c50f1f;color:#fff;font-weight:700;padding:4px 12px;border-radius:4px;font-size:13px;letter-spacing:.5px;}
+  h1{color:#c50f1f;font-size:26px;margin:14px 0 8px;line-height:1.25;}
+  p{color:#222;font-size:15px;line-height:1.55;margin:8px 0;}
+  .dom{background:#fde7e9;border:1px solid #f1bdc2;border-radius:6px;padding:10px 12px;font-family:Consolas,monospace;font-size:15px;color:#7a0a14;word-break:break-all;margin:12px 0;}
+  ul{margin:8px 0 14px;padding-left:20px;color:#222;font-size:14px;} li{margin:4px 0;}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;}
+  .btn{border:0;border-radius:6px;padding:12px 18px;font-size:14px;font-weight:600;cursor:pointer;}
+  .primary{background:#c50f1f;color:#fff;} .secondary{background:#e8e8e8;color:#333;} .ghost{background:transparent;color:#666;text-decoration:underline;}
+  .foot{margin-top:18px;font-size:12px;color:#666;}
+  details{margin-top:12px;font-size:13px;color:#444;} summary{cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card">
+  <span class="badge">⚠ ĐÃ CHẶN TRANG NGUY HIỂM</span>
+  <h1>Trang đăng nhập Microsoft giả mạo đã bị chặn</h1>
+  <p>Trang bạn vừa mở mô phỏng giao diện đăng nhập Microsoft nhưng <b>tên miền không thuộc Microsoft</b>. Đây là kỹ thuật <b>Adversary-in-the-Middle</b> để đánh cắp mật khẩu, mã OTP và phiên đăng nhập của bạn — kể cả khi đã bật 2FA.</p>
+  <div class="dom" id="host">—</div>
+  <p><b>Nếu bạn đã nhập thông tin trên trang này</b>, hãy đổi mật khẩu ngay từ cổng chính thức và báo <span id="helpdesk">IT Helpdesk</span>.</p>
+  <ul>
+    <li>Đăng nhập nội bộ chỉ chuyển hướng tới <b>login.microsoftonline.com</b>.</li>
+    <li>Không bấm "Phê duyệt" trên điện thoại nếu bạn không chủ động đăng nhập.</li>
+  </ul>
+  <div class="actions">
+    <button id="safe" class="btn primary">Đi tới cổng đăng nhập chính thức</button>
+    <button id="close" class="btn secondary">Đóng tab</button>
+    <button id="fp" class="btn ghost">Đây là trang hợp lệ (báo nhầm)</button>
+  </div>
+  <details><summary>Chi tiết kỹ thuật</summary><div id="detail"></div></details>
+  <div class="foot">VinSOC AiTM Phishing Guard · sự kiện đã được gửi tới SOC · kiểm soát do IT triển khai, không thể tắt.</div>
+</div></div>
+<script src="blocked.js"></script>
+</body>
+</html>
