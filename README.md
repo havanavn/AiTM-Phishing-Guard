@@ -1,4 +1,4 @@
-# VinSOC AiTM Phishing Guard (v1.5)
+# VinSOC AiTM Phishing Guard (v1.7.3)
 
 Chrome extension (Manifest V3) phát hiện và cảnh báo trang đăng nhập Microsoft
 giả mạo theo mô hình **Adversary-in-the-Middle (evilginx)**.
@@ -241,6 +241,43 @@ Sau đợt review nội bộ, các điều chỉnh:
 Đánh đổi có chủ đích: clone **verbatim** (giữ loginfmt/passwd) vẫn bị bắt qua fingerprint;
 custom kit **đổi sạch tên field trên domain trông vô hại** không còn bị DOM bắt một mình —
 tầng chặn cho ca đó là **hành vi exfil** (mục 6b) và telemetry, đúng như giới hạn đã nêu.
+
+### v1.7.3 — sửa hai false positive thực địa
+
+1. **Tài liệu trên `*.live.com` bị báo phishing.** `DEFAULT_TRUSTED_DOMAINS` (detector) chỉ có
+   `login.live.com` / `account.live.com`, trong khi `main-world.js` đã tin cả apex `live.com` →
+   hai danh sách lệch nhau; OneDrive / Word Online / Outlook consumer (`onedrive.live.com`,
+   `*.officeapps.live.com`, `outlook.live.com`) bị chấm điểm như host lạ. Nay hai danh sách
+   **đồng bộ**, bổ sung các apex **Microsoft sở hữu toàn bộ** (`live.com`, `microsoft.com`,
+   `microsoftonline.com`, `office.com`, `office.net`, `office365.com`, `outlook.com`,
+   `hotmail.com`, `onedrive.com`, `1drv.ms`, `windowsazure.com`, `microsoftazuread-sso.com`).
+   **Không** thêm apex đa-tenant (`sharepoint.com`, `azurewebsites.net`, `blob.core.windows.net`,
+   `azurestaticapps.net`) vì attacker tự tạo được subdomain ở đó. Trên host tin cậy, cả
+   `main-world.js` lẫn `exfil-hook.js` giờ **không hook gì** (footprint 0 trên Outlook/Teams/OneDrive).
+2. **Cloudflare Turnstile / managed challenge "không thể verify".** Script chống bot của
+   Cloudflare kiểm tra `Function.prototype.toString.call(fn)`, `fn.name`, `fn.length` của
+   `fetch`/XHR/`WebSocket`/`attachShadow`/`pushState`. Hook cũ lộ rõ (`fetch.name === "f"`,
+   `WebSocket.name === "WS"`, toString trả về source JS, own-property `toString` gắn tay) → bị
+   coi là môi trường bị can thiệp. Nay `main-world.js` giữ registry `WeakMap {wrapped → original}`
+   và thay `Function.prototype.toString` bằng bản tra registry rồi gọi native toString trên hàm
+   gốc; mọi wrapper dùng method shorthand (không có `.prototype`), `name`/`length` sao chép từ
+   hàm gốc; `WebSocket` giữ static/`prototype.constructor`; XHR không gắn thuộc tính lạ lên
+   instance (WeakMap). Registry chia sẻ qua `window.__aitmMainHooked.mask` (frozen, non-enumerable).
+   **Khuyến nghị thêm** vào từng entry `content_scripts` trong `manifest.json` (chưa áp dụng,
+   cần IT duyệt vì là nới phạm vi chạy của extension) để không đụng vào iframe captcha — các
+   host này do nhà cung cấp captcha sở hữu, không bao giờ là trang login bị proxy:
+
+   ```json
+   "exclude_matches": [
+     "https://challenges.cloudflare.com/*",
+     "https://www.google.com/recaptcha/*",
+     "https://recaptcha.net/recaptcha/*",
+     "https://www.recaptcha.net/recaptcha/*",
+     "https://*.hcaptcha.com/*"
+   ]
+   ```
+   Không có exclude này, `attachShadow` trong iframe Turnstile vẫn bị ép `closed → open`
+   (tell ngữ nghĩa: `el.shadowRoot !== null`), Cloudflare có thể vẫn phát hiện.
 
 ## 7. Giới hạn & phòng thủ nhiều lớp (lưu ý kiến trúc)
 

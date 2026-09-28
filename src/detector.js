@@ -1,5 +1,5 @@
 /*
- * detector.js  (v1.1)
+ * detector.js  (v1.7.3)
  * Toàn bộ logic phát hiện. Chạy trong isolated world của content script.
  *
  * NGUYÊN LÝ CHỐNG evilginx / AiTM:
@@ -50,7 +50,25 @@ var AITMDetector = (function () {
     "aadcdn.msauth.net",
     "aadcdn.msftauth.net",
     "aadcdn.msauthimages.net",
-    "logincdn.msauth.net"
+    "logincdn.msauth.net",
+    // --- Apex do Microsoft sở hữu TOÀN BỘ (không có subdomain của bên thứ ba) ---
+    // v1.7.3: thiếu các apex này -> OneDrive / Word Online / Outlook consumer
+    // (onedrive.live.com, *.officeapps.live.com, outlook.live.com...) bị chấm điểm
+    // như host lạ -> false positive. Danh sách này PHẢI đồng bộ với TRUSTED trong
+    // main-world.js. KHÔNG thêm apex đa-tenant (sharepoint.com, azurewebsites.net,
+    // blob.core.windows.net, azurestaticapps.net...) vì attacker tự tạo được subdomain.
+    "live.com",
+    "microsoft.com",
+    "microsoftonline.com",
+    "office.com",
+    "office.net",
+    "office365.com",
+    "outlook.com",
+    "hotmail.com",
+    "onedrive.com",
+    "1drv.ms",
+    "windowsazure.com",
+    "microsoftazuread-sso.com"
   ];
 
   // --- Path đặc trưng của AAD (evilginx giữ nguyên path khi proxy) ---

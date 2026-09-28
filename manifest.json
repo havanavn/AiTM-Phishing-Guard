@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "VinSOC AiTM Phishing Guard",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Phát hiện và chặn trang đăng nhập Microsoft giả mạo (evilginx / Adversary-in-the-Middle). Bảo vệ credential và 2FA của người dùng.",
   "minimum_chrome_version": "111",
   "permissions": [

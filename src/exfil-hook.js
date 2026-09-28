@@ -1,5 +1,5 @@
 /*
- * exfil-hook.js  (world: MAIN, run_at: document_start)  — v3
+ * exfil-hook.js  (world: MAIN, run_at: document_start)  — v1.7.3
  *
  * v3 (rà soát thuật toán):
  *   1) BẮT FORM POST truyền thống (<form action="https://evil/post.php">) — điểm mù lớn nhất
@@ -13,6 +13,11 @@
  *      password, input che bằng -webkit-text-security). credSeen STICKY cả vòng đời trang.
  *   5) Regex từ khóa body có biên -> không khớp passport/shipping/pinterest/client_secret.
  *
+ * v1.7.3: mọi hook được ngụy trang native (registry của main-world.js) — trước đây
+ *   fetch.name === "f", WebSocket.name === "WS", XHR open/send lộ source qua
+ *   Function.prototype.toString -> Cloudflare Turnstile / managed challenge coi là môi trường
+ *   bị can thiệp và từ chối verify. Không hook trên host Microsoft chính chủ.
+ *
  * RIÊNG TƯ: giá trị password chỉ đọc trong bộ nhớ MAIN world để so khớp, KHÔNG gửi đi,
  * KHÔNG log. Event 'aitm:exfil' chỉ mang boolean/host đã tóm tắt.
  */
@@ -21,6 +26,12 @@
   try {
     if (window.__aitmExfilHooked) return;
     Object.defineProperty(window, "__aitmExfilHooked", { value: true, enumerable: false });
+
+    // v1.7.3: main-world.js chạy trước, cung cấp registry ngụy trang native + cờ trusted.
+    // Host Microsoft chính chủ: exfil-content.js bỏ qua nên hook ở đây vô nghĩa -> không hook.
+    var mw = window.__aitmMainHooked;
+    if (mw && mw.trusted) return;
+    var mask = (mw && typeof mw.mask === "function") ? mw.mask : function (w) { return w; };
 
     // ---------------- Domain helpers ----------------
     var TWO_LEVEL = /^(co|com|net|org|edu|gov|ac|or|ne)\.(vn|uk|au|jp|br|in|sg|my|id|tw|hk|kr|cn|tr|mx|ar|nz|za|th|ph)$/i;
@@ -268,27 +279,36 @@
     });
 
     // ---------------- Hooks JS API ----------------
+    // Mọi wrapper dùng method shorthand (không có .prototype) + mask() để
+    // Function.prototype.toString / name / length giống hệt native.
     if (window.fetch) {
       var origFetch = window.fetch;
-      var f = function (input, init) {
-        try { assess((typeof input === "string") ? input : (input && input.url) || "", init && init.body, "fetch"); } catch (e) {}
-        return origFetch.apply(this, arguments);
-      };
-      try { f.toString = function () { return origFetch.toString(); }; } catch (e) {}
-      window.fetch = f;
+      window.fetch = mask({
+        fetch(input, init) {
+          try { assess((typeof input === "string") ? input : (input && input.url) || "", init && init.body, "fetch"); } catch (e) {}
+          return origFetch.apply(this, arguments);
+        }
+      }.fetch, origFetch);
     }
     if (window.XMLHttpRequest) {
       var op = XMLHttpRequest.prototype.open, se = XMLHttpRequest.prototype.send;
-      XMLHttpRequest.prototype.open = function (m, url) { try { this.__aitmUrl = url; } catch (e) {} return op.apply(this, arguments); };
-      XMLHttpRequest.prototype.send = function (body) { try { assess(this.__aitmUrl || "", body, "xhr"); } catch (e) {} return se.apply(this, arguments); };
+      var xhrUrl = new WeakMap();                 // không gắn thuộc tính lạ lên instance XHR
+      XMLHttpRequest.prototype.open = mask({
+        open(method, url) { try { xhrUrl.set(this, url); } catch (e) {} return op.apply(this, arguments); }
+      }.open, op);
+      XMLHttpRequest.prototype.send = mask({
+        send(body) { try { assess(xhrUrl.get(this) || "", body, "xhr"); } catch (e) {} return se.apply(this, arguments); }
+      }.send, se);
     }
-    if (navigator.sendBeacon) {
-      var sb = navigator.sendBeacon.bind(navigator);
-      navigator.sendBeacon = function (url, data) { try { assess(url, data, "beacon"); } catch (e) {} return sb(url, data); };
+    if (Navigator.prototype.sendBeacon) {
+      var sb = Navigator.prototype.sendBeacon;
+      Navigator.prototype.sendBeacon = mask({
+        sendBeacon(url, data) { try { assess(url, data, "beacon"); } catch (e) {} return sb.apply(this, arguments); }
+      }.sendBeacon, sb);
     }
     if (window.WebSocket) {
       var OrigWS = window.WebSocket;
-      var WS = function (url, proto) {
+      var WS = function WebSocket(url, proto) {
         try {
           if (pageHasCredField()) {
             var u = new URL(url, location.href), host = u.hostname.toLowerCase();
@@ -300,16 +320,27 @@
         } catch (e) {}
         return proto !== undefined ? new OrigWS(url, proto) : new OrigWS(url);
       };
-      WS.prototype = OrigWS.prototype;
-      WS.CONNECTING = 0; WS.OPEN = 1; WS.CLOSING = 2; WS.CLOSED = 3;
-      window.WebSocket = WS;
+      // Giữ nguyên hình dạng native: prototype chung, static CONNECTING/OPEN/... với descriptor gốc,
+      // prototype.constructor trỏ về wrapper để `ws.constructor === WebSocket`.
+      try {
+        Object.defineProperty(WS, "prototype", { value: OrigWS.prototype, writable: false, enumerable: false, configurable: false });
+        Object.getOwnPropertyNames(OrigWS).forEach(function (k) {
+          if (k === "prototype" || k === "name" || k === "length") return;
+          var d = Object.getOwnPropertyDescriptor(OrigWS, k);
+          if (d) try { Object.defineProperty(WS, k, d); } catch (e) {}
+        });
+        Object.defineProperty(OrigWS.prototype, "constructor", { value: WS, writable: true, enumerable: false, configurable: true });
+      } catch (e) {}
+      window.WebSocket = mask(WS, OrigWS);
     }
     try {
       var d = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
       if (d && d.set) {
+        var setSrc = Object.getOwnPropertyDescriptor({
+          set src(v) { try { assess(String(v), "", "image"); } catch (e) {} return d.set.call(this, v); }
+        }, "src").set;
         Object.defineProperty(HTMLImageElement.prototype, "src", {
-          set: function (v) { try { assess(String(v), "", "image"); } catch (e) {} return d.set.call(this, v); },
-          get: d.get, enumerable: d.enumerable, configurable: true
+          set: mask(setSrc, d.set), get: d.get, enumerable: d.enumerable, configurable: true
         });
       }
     } catch (e) {}
