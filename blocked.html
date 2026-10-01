@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Trang bị chặn – VinSOC AiTM Phishing Guard</title>
+<title>Trang bị chặn – AiTM Phishing Guard</title>
 <style>
   html,body{margin:0;height:100%;background:#7a0a14;font-family:'Segoe UI',Roboto,Arial,sans-serif;}
   .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;}
@@ -23,7 +23,7 @@
 <body>
 <div class="wrap"><div class="card">
   <span class="badge">⚠ ĐÃ CHẶN TRANG NGUY HIỂM</span>
-  <h1>Trang đăng nhập Microsoft giả mạo đã bị chặn</h1>
+  <h1>Đã chặn trang có dấu hiệu giả mạo Microsoft</h1>
   <p>Trang bạn vừa mở mô phỏng giao diện đăng nhập Microsoft nhưng <b>tên miền không thuộc Microsoft</b>. Đây là kỹ thuật <b>Adversary-in-the-Middle</b> để đánh cắp mật khẩu, mã OTP và phiên đăng nhập của bạn — kể cả khi đã bật 2FA.</p>
   <div class="dom" id="host">—</div>
   <p><b>Nếu bạn đã nhập thông tin trên trang này</b>, hãy đổi mật khẩu ngay từ cổng chính thức và báo <span id="helpdesk">IT Helpdesk</span>.</p>
@@ -34,10 +34,12 @@
   <div class="actions">
     <button id="safe" class="btn primary">Đi tới cổng đăng nhập chính thức</button>
     <button id="close" class="btn secondary">Đóng tab</button>
-    <button id="fp" class="btn ghost">Đây là trang hợp lệ (báo nhầm)</button>
+    <button id="fp" class="btn ghost" disabled>Không phải phishing — truy cập tiếp</button>
   </div>
+  <p class="foot">Lựa chọn truy cập tiếp chỉ áp dụng cho đúng domain trong tab này. Đóng tab sẽ xóa lựa chọn.</p>
+  <p id="status" role="status" aria-live="polite"></p>
   <details><summary>Chi tiết kỹ thuật</summary><div id="detail"></div></details>
-  <div class="foot">VinSOC AiTM Phishing Guard · sự kiện đã được gửi tới SOC · kiểm soát do IT triển khai, không thể tắt.</div>
+  <div class="foot">AiTM Phishing Guard</div>
 </div></div>
 <script src="blocked.js"></script>
 </body>

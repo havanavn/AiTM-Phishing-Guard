@@ -23,7 +23,7 @@
   if (window.__aitmDeviceCodeLoaded) return;
   window.__aitmDeviceCodeLoaded = true;
 
-  var HOST_ID = "vinsoc-aitm-devicecode-host";
+  var HOST_ID = "aitm-devicecode-host";
 
   // Xác nhận lần nữa bằng path (manifest match đã lọc, đây là phòng hờ)
   var p = (location.pathname || "").toLowerCase();
@@ -91,7 +91,7 @@
       "<button id='dc-report' class='btn secondary'>Báo cáo cho " + esc(cfg.helpdeskContact) + "</button>",
       acceptBtn,
       "</div>",
-      "<div class='foot'>VinSOC AiTM Phishing Guard · cảnh báo do IT triển khai.</div>",
+      "<div class='foot'>AiTM Phishing Guard · cảnh báo do IT triển khai.</div>",
       "</div></div>"
     ].join("");
   }

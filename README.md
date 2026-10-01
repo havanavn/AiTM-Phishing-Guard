@@ -1,4 +1,4 @@
-# VinSOC AiTM Phishing Guard (v1.7.3)
+# AiTM Phishing Guard (v1.9.1)
 
 Chrome extension (Manifest V3) phát hiện và cảnh báo trang đăng nhập Microsoft
 giả mạo theo mô hình **Adversary-in-the-Middle (evilginx)**.
@@ -32,14 +32,17 @@ Trang trên domain typosquat/homoglyph/punycode/subdomain lạ mà vẫn có vâ
 ```
 aitm-phishing-guard/
 ├── manifest.json               # MV3, Chrome 111+
-├── src/main-world.js           # MAIN world @document_start: ép closed shadowRoot -> open,
-│                               #   hook pushState/replaceState -> Event 'aitm:navigate'
+├── src/hook-policy.js          # đăng ký hook theo managed policy; loại CAPTCHA và host tin cậy
 ├── src/detector.js             # allowlist + URL path AAD + vân tay DOM (deep shadow) + validatePolicy
 ├── src/content.js              # điều phối; report / warn (overlay) / block (interstitial)
 ├── src/devicecode.js           # v1.2: cảnh báo trên trang DEVICE CODE thật của Microsoft
 ├── src/exfil-hook.js           # v1.4 MAIN world: bắt HÀNH VI exfil (cross-origin post, Telegram/Discord, keystroke streaming)
 ├── src/exfil-content.js        # v1.4: chấm điểm hành vi + cảnh báo soft (heuristic tổng quát, ngoài O365)
 ├── src/background.js           # telemetry ký HMAC + định danh, offline queue, điều hướng block
+├── src/config.js               # đặt server nhận log trước khi deploy; để trống = không gửi
+├── src/settings.js             # chuẩn hóa endpoint từ source; metadata từ managed policy
+├── src/telemetry.js            # hàng đợi log, HMAC, retry và loại query/fragment
+├── src/access.js               # bản ghi chặn và ngoại lệ domain theo tab
 ├── blocked.html / blocked.js   # trang interstitial thay hoàn toàn trang phishing
 ├── policy/managed_schema.json  # schema cấu hình IT đẩy xuống
 └── icons/
@@ -92,20 +95,19 @@ Khóa **3rdparty/extensions/<EXTENSION_ID>/policy** (Windows registry/GPO hoặc
   "trustedAuthDomains": [],
   "detectionThreshold": 6,
   "safePortalUrl": "https://myapps.microsoft.com/",
-  "reportingEndpoint": "https://collector.vinsoc.local/api/aitm",
   "telemetrySecret": "<random-32-bytes>",
   "deviceId": "%COMPUTERNAME%",
   "userId": "%USERNAME%",
-  "helpdeskContact": "VinSOC / IT Helpdesk (ext 1234)"
+  "helpdeskContact": "IT Helpdesk (ext 1234)"
 }
 ```
 
 | Khóa | Ghi chú |
 |---|---|
-| `enabled` | **Kill switch.** `false` = tắt toàn bộ trong vài phút qua policy, không cần push build. |
+| `enabled` | **Kill switch.** `false` = ngừng đăng ký hook; tải lại các tab sau khi policy đồng bộ để gỡ hook và dừng detector đã chạy. |
 | `blockMode` | `report` (im lặng, chỉ telemetry) → `warn` (overlay, cho đóng) → `block` (interstitial). |
 | `deviceCodeMode` | `warn` (mặc định: overlay đỏ + nút "Tôi hiểu rủi ro" để hiện trang nhập mã), `block` (không có nút chấp nhận), `off`. |
-| `behaviorMode` | `warn` (mặc định: cảnh báo soft khi phát hiện hành vi exfil trên **bất kỳ site nào ngoài O365**), `off`. Không có block cứng. |
+| `behaviorMode` | `warn` (mặc định: cảnh báo soft khi phát hiện hành vi exfil trên **bất kỳ site nào ngoài O365**), `off` (ngừng đăng ký hook; cần tải lại tab đang mở). Không có block cứng. |
 | `orgIdpDomains` | Khai **host cụ thể**. Khai apex (`vingroup.net`) → extension gửi `aitm_config_warning`. |
 | `safePortalUrl` | Nút "Đi tới cổng đăng nhập chính thức" đưa user về đây (không về `about:blank`). |
 | `telemetrySecret` | Server verify `X-AiTM-Signature = sha256=HMAC_SHA256(secret, X-AiTM-Timestamp + "." + body)`; reject nếu lệch > 5 phút. |
@@ -116,18 +118,20 @@ Khóa **3rdparty/extensions/<EXTENSION_ID>/policy** (Windows registry/GPO hoặc
 2. **`warn`** 1–2 tuần → đo tỷ lệ bấm "báo nhầm" (`aitm_false_positive_report`).
 3. **`block`**. Giữ `enabled=false` sẵn làm nút khẩn cấp.
 
-Sự kiện gửi về SOC (`aitm_phishing_detected`, `aitm_false_positive_report`,
-`aitm_config_warning`), ký HMAC, queue offline trong `storage.local` và retry mỗi 15 phút:
+Sự kiện gửi về server (`aitm_phishing_detected`, `aitm_domain_blocked`,
+`aitm_false_positive_report`, `aitm_config_warning`), ký HMAC khi có `telemetrySecret`,
+queue offline trong `storage.local` và retry mỗi 15 phút:
 
 ```json
 {
   "event": "aitm_phishing_detected",
-  "source": "vinsoc-aitm-guard",
-  "extVersion": "1.1.0",
+  "eventId": "ef955e49-8dbe-46cb-9939-e4e3e198c056",
+  "source": "aitm-phishing-guard",
+  "extVersion": "1.9.1",
   "deviceId": "VN-LT-04213",
   "userId": "nam.hv",
   "data": {
-    "url": "https://login.micros0ft-online.com/common/oauth2/v2.0/authorize?client_id=...",
+    "url": "https://login.micros0ft-online.com/common/oauth2/v2.0/authorize",
     "hostname": "login.micros0ft-online.com",
     "score": 20, "pathScore": 5, "tier": "strong", "mode": "block",
     "signals": ["URL path AAD: /common/oauth2/v2.0/authorize", "field username 'loginfmt'", "$Config (AAD)"],
@@ -136,6 +140,78 @@ Sự kiện gửi về SOC (`aitm_phishing_detected`, `aitm_false_positive_repor
   }
 }
 ```
+
+### Cấu hình server trong source và báo nhầm để truy cập tiếp (v1.9.1)
+
+Đặt địa chỉ nhận log trong **`src/config.js` trước khi đóng gói/deploy**:
+
+```js
+var AITM_CONFIG = Object.freeze({
+  reportingEndpoint: "https://logs.example.com/api/aitm"
+});
+```
+
+Có thể nhập domain trần (`logs.example.com` → `https://logs.example.com/api/aitm`)
+hoặc URL đầy đủ với đường dẫn riêng. Giá trị mặc định trong repo là chuỗi rỗng.
+
+1. **Để `reportingEndpoint: ""` để tắt gửi log:** không gửi sự kiện mới, không thêm
+   log mới vào hàng đợi, không gửi log cũ đang chờ. Chặn phishing và nút báo nhầm /
+   truy cập tiếp vẫn hoạt động. Cấu hình endpoint không hợp lệ cũng không gửi log.
+2. **Không có trang Options, nút cấu hình hay API lưu endpoint cho user.** Địa chỉ
+   trong `chrome.storage.local` từ bản cũ và `reportingEndpoint` trong managed policy
+   đều bị bỏ qua. `telemetrySecret`, `deviceId`, `userId` vẫn lấy từ managed policy.
+3. Sau khi chỉnh source, đóng gói/deploy bản mới (hoặc reload extension khi thử
+   unpacked), rồi reload các tab. Server nhận **POST JSON**, trả HTTP **2xx** để xác
+   nhận. HTTP chỉ được chấp nhận trên localhost để thử nghiệm; production dùng HTTPS.
+   Server và chứng chỉ cần được triển khai riêng.
+4. Trên trang bị chặn, user có thể bấm **Không phải phishing — truy cập tiếp**.
+   Extension lưu ngoại lệ cho **đúng hostname, chỉ trong tab hiện tại**, ghi sự kiện
+   rồi quay về URL ban đầu (giữ query/fragment để luồng đăng nhập tiếp tục).
+   Không cho phép ngầm các subdomain hay tab khác. Đóng tab, khởi động lại trình duyệt
+   hoặc reload extension sẽ xóa ngoại lệ. Nếu iframe bị chặn, quay lại trang cha và
+   chỉ cho phép hostname của iframe đó. Ngoại lệ này dành cho detector DOM/URL;
+   các cảnh báo hành vi exfil độc lập vẫn hoạt động.
+
+| Sự kiện | Ý nghĩa và trường chính |
+|---|---|
+| `aitm_domain_blocked` | Tab đã được chuyển sang trang chặn; `data.hostname`, `data.blockId`, `data.action="blocked"`, điểm và dấu hiệu phát hiện. |
+| `aitm_false_positive_report` | User báo nhầm; thao tác ở trang chặn có `data.action="allow_and_continue"`, `data.scope="tab"` và `data.blockId` trùng sự kiện chặn. Báo nhầm từ overlay warn chỉ gửi báo cáo. |
+| `aitm_exfil_false_positive` | User báo nhầm cảnh báo hành vi; giữ cơ chế ghi nhớ 30 ngày của module này. |
+
+Ví dụ `data` của sự kiện user truy cập tiếp:
+
+```json
+{
+  "blockId": "804f21fb-f311-4b87-9442-2e20aec12880",
+  "hostname": "login.example.com",
+  "url": "https://login.example.com/common/oauth2/authorize",
+  "action": "allow_and_continue",
+  "scope": "tab",
+  "fromInterstitial": true,
+  "score": 7,
+  "tier": "strong"
+}
+```
+
+Log có `eventId` để server chống trùng khi retry. Mã `blockId` nối lần chặn với
+quyết định của user. Từ v1.9.0, `source` là `aitm-phishing-guard`; cập nhật bộ lọc
+SIEM nếu đang lọc tên cũ. Các trường URL trong log bỏ userinfo, query và fragment;
+không gửi mật khẩu hay nội dung form. URL đầy đủ chỉ được giữ trong session của
+extension để điều hướng lại, không đặt trong query của trang cảnh báo.
+
+Hàng đợi tối đa 200 sự kiện, đầy thì bỏ sự kiện cũ nhất. Gửi lỗi hoặc quá 10 giây
+thì giữ lại để retry; mỗi đợt tối đa 25 sự kiện. Ghi log mới không bị mất khi một
+đợt gửi đang chạy. Khi bản deploy để trống endpoint, hàng đợi cũ được giữ và không gửi; khi deploy
+bản có endpoint, log còn chờ sẽ gửi tới endpoint trong source của bản đó. Việc truy cập tiếp chỉ chờ lưu quyết định
+và log cục bộ, không chờ server online. Cảnh báo hết hiệu lực không được dùng để
+thêm ngoại lệ; yêu cầu từ content script của trang web cũng không được phép bỏ chặn.
+
+Kiểm thử: `node tests/logging-access.test.cjs` cho cấu hình source, HMAC, queue và
+quyền bỏ chặn. `node tests/browser-smoke.cjs /path/to/chromium` kiểm tra bản đóng gói
+có endpoint cùng luồng chặn → báo nhầm → truy cập tiếp; thêm `--no-logs` để kiểm tra
+bản để trống endpoint vẫn bảo vệ và không gửi/queue log. Mỗi lần chạy tạo bản sao
+extension và profile tạm, giả lập request log trong service worker; không sửa
+source thật và không gửi dữ liệu thử ra server bên ngoài.
 
 ## 6. Module device code (v1.2)
 
@@ -234,7 +310,7 @@ Sau đợt review nội bộ, các điều chỉnh:
    **Chính sách ghi nhớ theo module (v1.7.2):**
    | Module | User "báo nhầm"/"chấp nhận" có được ghi nhớ? |
    |---|---|
-   | O365 (AiTM) | **Không.** Chỉ gửi telemetry; lần sau vẫn cảnh báo/chặn. Chỉ IT gỡ qua `orgIdpDomains`. |
+   | O365 (AiTM) | **Từ v1.9.0:** báo nhầm trên trang chặn cho phép đúng hostname trong tab hiện tại; đóng tab sẽ xóa. Overlay warn chỉ gửi báo cáo. |
    | Device code | **Không.** Mỗi lần mở trang đều cảnh báo lại; "Tôi hiểu rủi ro" chỉ có hiệu lực cho lần tải đó. |
    | Hành vi exfil (site bất kỳ) | **Có, 30 ngày**, `chrome.storage.local`. Vì đây là heuristic không có ground truth, FP là chi phí cố định. |
 
@@ -254,30 +330,56 @@ tầng chặn cho ca đó là **hành vi exfil** (mục 6b) và telemetry, đún
    **Không** thêm apex đa-tenant (`sharepoint.com`, `azurewebsites.net`, `blob.core.windows.net`,
    `azurestaticapps.net`) vì attacker tự tạo được subdomain ở đó. Trên host tin cậy, cả
    `main-world.js` lẫn `exfil-hook.js` giờ **không hook gì** (footprint 0 trên Outlook/Teams/OneDrive).
-2. **Cloudflare Turnstile / managed challenge "không thể verify".** Script chống bot của
-   Cloudflare kiểm tra `Function.prototype.toString.call(fn)`, `fn.name`, `fn.length` của
-   `fetch`/XHR/`WebSocket`/`attachShadow`/`pushState`. Hook cũ lộ rõ (`fetch.name === "f"`,
-   `WebSocket.name === "WS"`, toString trả về source JS, own-property `toString` gắn tay) → bị
-   coi là môi trường bị can thiệp. Nay `main-world.js` giữ registry `WeakMap {wrapped → original}`
-   và thay `Function.prototype.toString` bằng bản tra registry rồi gọi native toString trên hàm
-   gốc; mọi wrapper dùng method shorthand (không có `.prototype`), `name`/`length` sao chép từ
-   hàm gốc; `WebSocket` giữ static/`prototype.constructor`; XHR không gắn thuộc tính lạ lên
-   instance (WeakMap). Registry chia sẻ qua `window.__aitmMainHooked.mask` (frozen, non-enumerable).
-   **Khuyến nghị thêm** vào từng entry `content_scripts` trong `manifest.json` (chưa áp dụng,
-   cần IT duyệt vì là nới phạm vi chạy của extension) để không đụng vào iframe captcha — các
-   host này do nhà cung cấp captcha sở hữu, không bao giờ là trang login bị proxy:
+2. **Cloudflare Turnstile / managed challenge "không thể verify".** v1.7.3 thử che
+   wrapper bằng cách sửa `Function.prototype.toString`, nhưng chưa áp dụng
+   `exclude_matches` và vẫn ép Shadow DOM đóng thành mở. Chưa có log thực địa chứng minh
+   Cloudflare kiểm tra từng thuộc tính nào; các thay đổi này chỉ là nguyên nhân nghi ngờ.
+   Cách tiếp cận đó đã được thay thế ở v1.8.0.
 
-   ```json
-   "exclude_matches": [
-     "https://challenges.cloudflare.com/*",
-     "https://www.google.com/recaptcha/*",
-     "https://recaptcha.net/recaptcha/*",
-     "https://www.recaptcha.net/recaptcha/*",
-     "https://*.hcaptcha.com/*"
-   ]
-   ```
-   Không có exclude này, `attachShadow` trong iframe Turnstile vẫn bị ép `closed → open`
-   (tell ngữ nghĩa: `el.shadowRoot !== null`), Cloudflare có thể vẫn phát hiện.
+### v1.8.0 — giảm can thiệp vào trang và sửa lifecycle của hook
+
+- **Loại CAPTCHA khỏi content scripts:** `challenges.cloudflare.com`, các đường dẫn
+  reCAPTCHA và `*.hcaptcha.com`. Đây là loại trừ phạm vi injection, khác với
+  `behaviorAllowlist` (chỉ bỏ qua đánh giá đích gửi dữ liệu). Không whitelist toàn bộ
+  `cloudflare.com` hoặc mọi website dùng Cloudflare.
+- **Bỏ `main-world.js`:** không sửa `Function.prototype.toString`, `attachShadow`,
+  `pushState` hoặc `replaceState`. Detector dùng
+  [chrome.dom.openOrClosedShadowRoot](https://developer.chrome.com/docs/extensions/reference/api/dom)
+  để đọc Shadow DOM đóng từ isolated world. Trang vẫn thấy `host.shadowRoot === null`.
+  SPA dùng Navigation API / popstate / hashchange; quét dự phòng mỗi 2 giây cũng bắt
+  nội dung được thêm muộn trong Shadow DOM.
+- **Hook hành vi theo policy:** background dùng `chrome.scripting` (thêm quyền
+  `scripting`) đăng ký hook MAIN ở `document_start`, chỉ top frame. `enabled=false`
+  hoặc `behaviorMode=off` gỡ đăng ký; host tin cậy tích hợp và `trustedAuthDomains` /
+  `orgIdpDomains` được loại khỏi hook, dùng chung danh sách với detector.
+  Không nhận lệnh tắt hook qua thuộc tính DOM của trang.
+- **Policy áp dụng cho lần tải trang tiếp theo:** sau cập nhật extension hoặc policy,
+  chờ background đồng bộ rồi reload các tab. Gỡ đăng ký script không hoàn tác script
+  đã chạy. Đăng ký được giữ qua phiên; trang mở ngay lúc cài đặt/đồng bộ có thể chạy
+  trước khi đăng ký hoàn tất. Khi đọc policy lỗi, background giữ đăng ký trước đó và
+  ghi lỗi ở console service worker.
+- **Form không bị chặn âm thầm:** chỉ soft-block khi listener cảnh báo đã nhận xử lý;
+  listener chưa sẵn sàng, chế độ off hoặc host đã báo nhầm thì không giữ submit.
+  Đọc `formaction` của nút submit và giữ nút đó khi người dùng cho phép gửi tiếp.
+- **Sửa tính tương thích API:** giữ lỗi gọi WebSocket thiếu `new`, hỗ trợ subclass,
+  chuyển tiếp nguyên các tham số; đọc đúng phạm vi `byteOffset` / `byteLength` của
+  TypedArray để tránh báo nhầm do dữ liệu ngoài phần thực sự được gửi.
+
+**Kiểm thử tự động:** chạy `node tests/compatibility.test.cjs` (Node.js 22+,
+không cần cài dependency). Kiểm tra registration/policy, closed shadow roots,
+WebSocket, request forwarding, typed-array slices và soft-block form.
+Kiểm tra tích hợp bằng Chromium hỗ trợ load extension:
+`node tests/browser-smoke.cjs /path/to/chromium`. Bài kiểm tra tạo profile tạm,
+intercept request để trả trang giả lập và tự dọn profile; không giải CAPTCHA thật.
+
+**Kiểm thử Cloudflare thực tế:** reload extension tại `chrome://extensions`, rồi
+reload trang đang lỗi. So sánh cùng URL khi bật/tắt extension; ghi lại mã lỗi,
+Ray ID và Console/Network nếu lỗi còn xảy ra. Không dùng `enabled=false` trên tab
+chưa reload để làm phép so sánh. Xem
+[hướng dẫn Cloudflare](https://developers.cloudflare.com/cloudflare-challenges/troubleshooting/challenge-solve-issues/).
+Loại trừ iframe không bảo đảm Managed Challenge trên trang chính sẽ thành công:
+hook hành vi vẫn chạy trên trang chính không tin cậy. Có thể dùng `behaviorMode=off`
+và reload để cô lập tầng này, đồng thời giữ detector DOM/URL hoạt động.
 
 ## 7. Giới hạn & phòng thủ nhiều lớp (lưu ý kiến trúc)
 
@@ -287,11 +389,8 @@ Extension này là lớp **phát hiện/cảnh báo** mạnh với evilginx (vì
 ### Đã vá
 - **v1.0** — open Shadow DOM (`collectRoots`/`deepQuery`); SPA render muộn (observer sống lâu).
 - **v1.1** —
-  - **closed shadowRoot**: `main-world.js` patch `Element.prototype.attachShadow`
-    ở `document_start` (trước mọi script của trang) ép `closed → open`, bỏ qua trên
-    host MS. Detector thấy được mọi shadow root.
-  - **pushState/replaceState**: patch `History.prototype` trong MAIN world →
-    `Event('aitm:navigate')` xuyên isolated world; poll chỉ còn là dự phòng 2s.
+  - **closed shadowRoot**: từ v1.8.0 đọc bằng API extension, không ép thành open.
+  - **pushState/replaceState**: từ v1.8.0 dùng Navigation API và polling 2s, không patch history.
   - **URL path AAD**: tín hiệu độc lập DOM, bắt được cả trước khi form render.
   - **Tamper overlay**: chế độ `block` điều hướng cả tab sang `blocked.html` của
     extension → JS trang phishing bị loại bỏ hoàn toàn, không còn cuộc đua re-inject.
@@ -301,9 +400,9 @@ Extension này là lớp **phát hiện/cảnh báo** mạnh với evilginx (vì
   - **Allowlist thiếu** (b2clogin, ciamlogin, passwordreset, autologon SSO, mysignins…).
 
 ### Vẫn còn (cần lớp bù)
-- **Né patch MAIN world**: trang có thể lấy `attachShadow`/`pushState` nguyên bản từ
-  một `<iframe>` mới tạo (`iframe.contentWindow.Element.prototype.attachShadow`).
-  Hardening, không phải rào chắn tuyệt đối. Bù bằng URL path signal + chặn mạng.
+- **Né hook hành vi MAIN world**: trang có thể lấy API mạng nguyên bản từ iframe
+  mới hoặc can thiệp kênh sự kiện DOM giữa hai world. Tầng heuristic này không phải
+  ranh giới bảo mật tuyệt đối; cần phối hợp detector DOM/URL và bảo vệ mạng.
 - **Kit tùy biến** đổi tên field/obfuscate/render bằng ảnh và không giữ path AAD
   (Tycoon 2FA, Greatness dùng template riêng) → cần đo detection rate với mẫu thực.
 - **file:// attachment**: content script không chạy nếu tắt "Allow access to file

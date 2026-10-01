@@ -18,7 +18,7 @@
   window.__aitmGuardLoaded = true;
 
   var DEFAULT_THRESHOLD = 6;
-  var HOST_ID = "vinsoc-aitm-guard-host";
+  var HOST_ID = "aitm-guard-host";
   var DEFAULT_SAFE_PORTAL = "https://login.microsoftonline.com/";
 
   // ---------------------------------------------------------------------------
@@ -123,7 +123,7 @@
       "<button id='aitm-fp' class='btn ghost'>Đây là trang hợp lệ (báo nhầm)</button>",
       dismissBtn,
       "</div>",
-      "<div class='foot'>VinSOC AiTM Phishing Guard · điểm: " + result.score + " · cảnh báo do IT triển khai.</div>",
+      "<div class='foot'>AiTM Phishing Guard · điểm: " + result.score + " · cảnh báo do IT triển khai.</div>",
       "</div></div>"
     ].join("");
   }
@@ -183,8 +183,14 @@
   // ---------------------------------------------------------------------------
   // 5) Chạy
   // ---------------------------------------------------------------------------
-  loadConfig().then(function (cfg) {
+  loadConfig().then(async function (cfg) {
     if (!cfg.enabled) return; // kill switch
+
+    // Only the background can authorize a user exception for this tab/host.
+    try {
+      var exception = await chrome.runtime.sendMessage({ type: "aitm-check-domain" });
+      if (exception && exception.allowed === true) return;
+    } catch (e) {} // no authorization => keep protection active
 
     var trusted = AITMDetector.DEFAULT_TRUSTED_DOMAINS
       .concat(cfg.trustedAuthDomains).concat(cfg.orgIdpDomains);
@@ -215,9 +221,9 @@
     function teardown() {
       if (domObserver) { domObserver.disconnect(); domObserver = null; }
       if (urlPoller) { clearInterval(urlPoller); urlPoller = null; }
-      window.removeEventListener("aitm:navigate", onNav, true);
       window.removeEventListener("popstate", onNav, true);
       window.removeEventListener("hashchange", onNav, true);
+      if (window.navigation) window.navigation.removeEventListener("navigatesuccess", onNav);
     }
 
     function run() {
@@ -243,23 +249,20 @@
     }
 
     // --- Điều hướng SPA ---
-    // main-world.js đã patch pushState/replaceState -> Event 'aitm:navigate'.
-    var lastUrl = location.href;
+    // Navigation API + polling dự phòng: không patch History.prototype của trang.
     function onNav() {
       if (done) return;
-      lastUrl = location.href;
       setTimeout(scheduleRun, 150); // cho DOM kịp render route mới
     }
-    window.addEventListener("aitm:navigate", onNav, true);
     window.addEventListener("popstate", onNav, true);
     window.addEventListener("hashchange", onNav, true);
     if (window.navigation && typeof window.navigation.addEventListener === "function") {
       try { window.navigation.addEventListener("navigatesuccess", onNav); } catch (e) {}
     }
-    // Poll dự phòng thưa (trường hợp hook MAIN world bị trang vô hiệu)
+    // Poll dự phòng cho trình duyệt thiếu Navigation API.
     urlPoller = setInterval(function () {
       if (done) return;
-      if (location.href !== lastUrl) { lastUrl = location.href; scheduleRun(); }
+      scheduleRun(); // phát hiện cả nội dung mới trong closed Shadow DOM
     }, 2000);
 
     // --- DOM render muộn ---

@@ -54,8 +54,8 @@ var AITMDetector = (function () {
     // --- Apex do Microsoft sở hữu TOÀN BỘ (không có subdomain của bên thứ ba) ---
     // v1.7.3: thiếu các apex này -> OneDrive / Word Online / Outlook consumer
     // (onedrive.live.com, *.officeapps.live.com, outlook.live.com...) bị chấm điểm
-    // như host lạ -> false positive. Danh sách này PHẢI đồng bộ với TRUSTED trong
-    // main-world.js. KHÔNG thêm apex đa-tenant (sharepoint.com, azurewebsites.net,
+    // như host lạ -> false positive. Background dùng cùng danh sách để loại hook.
+    // KHÔNG thêm apex đa-tenant (sharepoint.com, azurewebsites.net,
     // blob.core.windows.net, azurestaticapps.net...) vì attacker tự tạo được subdomain.
     "live.com",
     "microsoft.com",
@@ -137,22 +137,39 @@ var AITMDetector = (function () {
   }
 
   // ---------------------------------------------------------------------------
-  // Duyệt SÂU qua Shadow DOM (open; closed đã được main-world.js ép thành open)
+  // Đọc cả closed Shadow DOM từ isolated world, không sửa attachShadow của trang.
   // ---------------------------------------------------------------------------
   var MAX_ROOTS = 4000;
+
+  function shadowRootOf(el) {
+    try {
+      if (typeof chrome !== "undefined" && chrome.dom && chrome.dom.openOrClosedShadowRoot) {
+        return chrome.dom.openOrClosedShadowRoot(el);
+      }
+    } catch (e) {}
+    return el.shadowRoot || null;
+  }
 
   function collectRoots(startNode) {
     var roots = [];
     if (!startNode) return roots;
     var queue = [startNode];
-    while (queue.length && roots.length < MAX_ROOTS) {
-      var r = queue.shift();
+    var seen = new Set(queue);
+    function enqueueShadow(el) {
+      var sr = shadowRootOf(el);
+      if (sr && !seen.has(sr) && seen.size < MAX_ROOTS) {
+        seen.add(sr);
+        queue.push(sr);
+      }
+    }
+    for (var q = 0; q < queue.length && roots.length < MAX_ROOTS; q++) {
+      var r = queue[q];
       roots.push(r);
+      if (r.nodeType === 1) enqueueShadow(r);
       var all;
       try { all = r.querySelectorAll ? r.querySelectorAll("*") : []; } catch (e) { all = []; }
       for (var i = 0; i < all.length; i++) {
-        var sr = all[i].shadowRoot;
-        if (sr) queue.push(sr);
+        enqueueShadow(all[i]);
       }
     }
     return roots;

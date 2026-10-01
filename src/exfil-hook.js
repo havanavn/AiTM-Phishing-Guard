@@ -1,5 +1,5 @@
 /*
- * exfil-hook.js  (world: MAIN, run_at: document_start)  — v1.7.3
+ * exfil-hook.js  (world: MAIN, run_at: document_start)  — v1.8.0
  *
  * v3 (rà soát thuật toán):
  *   1) BẮT FORM POST truyền thống (<form action="https://evil/post.php">) — điểm mù lớn nhất
@@ -13,10 +13,8 @@
  *      password, input che bằng -webkit-text-security). credSeen STICKY cả vòng đời trang.
  *   5) Regex từ khóa body có biên -> không khớp passport/shipping/pinterest/client_secret.
  *
- * v1.7.3: mọi hook được ngụy trang native (registry của main-world.js) — trước đây
- *   fetch.name === "f", WebSocket.name === "WS", XHR open/send lộ source qua
- *   Function.prototype.toString -> Cloudflare Turnstile / managed challenge coi là môi trường
- *   bị can thiệp và từ chối verify. Không hook trên host Microsoft chính chủ.
+ * v1.8.0: background đăng ký theo managed policy, loại host tin cậy / CAPTCHA.
+ *   Không ghi đè Function.prototype.toString, attachShadow hoặc History.
  *
  * RIÊNG TƯ: giá trị password chỉ đọc trong bộ nhớ MAIN world để so khớp, KHÔNG gửi đi,
  * KHÔNG log. Event 'aitm:exfil' chỉ mang boolean/host đã tóm tắt.
@@ -27,11 +25,12 @@
     if (window.__aitmExfilHooked) return;
     Object.defineProperty(window, "__aitmExfilHooked", { value: true, enumerable: false });
 
-    // v1.7.3: main-world.js chạy trước, cung cấp registry ngụy trang native + cờ trusted.
-    // Host Microsoft chính chủ: exfil-content.js bỏ qua nên hook ở đây vô nghĩa -> không hook.
-    var mw = window.__aitmMainHooked;
-    if (mw && mw.trusted) return;
-    var mask = (mw && typeof mw.mask === "function") ? mw.mask : function (w) { return w; };
+    // Preserve standard metadata without replacing global reflection APIs.
+    function wrapMetadata(wrapped, original) {
+      Object.defineProperty(wrapped, "name", { value: original.name, configurable: true });
+      Object.defineProperty(wrapped, "length", { value: original.length, configurable: true });
+      return wrapped;
+    }
 
     // ---------------- Domain helpers ----------------
     var TWO_LEVEL = /^(co|com|net|org|edu|gov|ac|or|ne)\.(vn|uk|au|jp|br|in|sg|my|id|tw|hk|kr|cn|tr|mx|ar|nz|za|th|ph)$/i;
@@ -205,13 +204,19 @@
           return parts.join("&").slice(0, 65536);
         }
         if (body instanceof ArrayBuffer || ArrayBuffer.isView(body)) {
-          return new TextDecoder().decode(body instanceof ArrayBuffer ? body : body.buffer).slice(0, 65536);
+          var bytes = body instanceof ArrayBuffer ? new Uint8Array(body) : new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+          return new TextDecoder().decode(bytes.subarray(0, 65536));
         }
       } catch (e) {}
       return "";
     }
 
-    function emit(sig) { try { window.dispatchEvent(new CustomEvent("aitm:exfil", { detail: sig })); } catch (e) {} }
+    // A submit is blocked only if the isolated UI acknowledges the signal.
+    // Policy off, muted sites or a listener still loading must not trap the form.
+    function emit(sig) {
+      try { return !window.dispatchEvent(new CustomEvent("aitm:exfil", { detail: sig, cancelable: true })); }
+      catch (e) { return false; }
+    }
 
     // ---------------- Đánh giá request JS (fetch/xhr/beacon/image) ----------------
     function assess(urlStr, body, via) {
@@ -236,7 +241,7 @@
     }
 
     // ---------------- (1) FORM POST truyền thống ----------------
-    var pendingForm = null;
+    var pendingForm = null, pendingSubmitter = null;
     var bypass = (typeof WeakSet !== "undefined") ? new WeakSet() : { has: function () { return false; }, add: function () {}, delete: function () {} };
 
     document.addEventListener("submit", function (e) {
@@ -245,7 +250,9 @@
         if (!form || form.tagName !== "FORM") return;
         if (bypass.has(form)) { bypass.delete(form); return; }      // user đã chọn "Vẫn gửi"
 
-        var actionAttr = form.getAttribute("action");
+        var submitter = e.submitter;
+        var actionAttr = submitter && submitter.hasAttribute("formaction")
+          ? submitter.getAttribute("formaction") : form.getAttribute("action");
         var u = new URL(actionAttr || location.href, location.href);
         var host = u.hostname.toLowerCase(), site = regDomain(host);
         if (site === pageSite) return;
@@ -261,29 +268,32 @@
 
         // Soft-block: chỉ khi CHẮC (mật khẩu thật đang rời trang, hoặc form password tới kênh exfil)
         var strong = containsPassword || (exfilHost && formHasPw);
-        if (strong) { e.preventDefault(); e.stopImmediatePropagation(); pendingForm = form; }
-
-        emit({ via: "form", host: host, site: site, exfilHost: exfilHost, isAnalytics: false,
+        var handled = emit({ via: "form", host: host, site: site, exfilHost: exfilHost, isAnalytics: false,
                containsPassword: containsPassword, containsIdentifier: containsIdentifier,
                keyAligned: false, credLikeKeys: false, formHasPassword: formHasPw, blocked: strong });
+        if (strong && handled) {
+          e.preventDefault(); e.stopImmediatePropagation();
+          pendingForm = form; pendingSubmitter = submitter;
+        }
       } catch (er) {}
     }, true);
 
     // isolated world báo "Vẫn gửi" -> nộp lại form, bỏ qua kiểm tra một lần
     window.addEventListener("aitm:exfil-proceed", function () {
-      var f = pendingForm; pendingForm = null;
+      var f = pendingForm, submitter = pendingSubmitter;
+      pendingForm = null; pendingSubmitter = null;
       if (!f) return;
       bypass.add(f);
-      try { if (f.requestSubmit) f.requestSubmit(); else f.submit(); }
+      try { if (f.requestSubmit) f.requestSubmit(submitter || undefined); else f.submit(); }
       catch (e) { try { f.submit(); } catch (_) {} }
+      finally { bypass.delete(f); } // validation failure must not exempt a later submit
     });
 
     // ---------------- Hooks JS API ----------------
-    // Mọi wrapper dùng method shorthand (không có .prototype) + mask() để
-    // Function.prototype.toString / name / length giống hệt native.
+    // Forward original arguments and receivers; preserve native errors.
     if (window.fetch) {
       var origFetch = window.fetch;
-      window.fetch = mask({
+      window.fetch = wrapMetadata({
         fetch(input, init) {
           try { assess((typeof input === "string") ? input : (input && input.url) || "", init && init.body, "fetch"); } catch (e) {}
           return origFetch.apply(this, arguments);
@@ -293,22 +303,23 @@
     if (window.XMLHttpRequest) {
       var op = XMLHttpRequest.prototype.open, se = XMLHttpRequest.prototype.send;
       var xhrUrl = new WeakMap();                 // không gắn thuộc tính lạ lên instance XHR
-      XMLHttpRequest.prototype.open = mask({
+      XMLHttpRequest.prototype.open = wrapMetadata({
         open(method, url) { try { xhrUrl.set(this, url); } catch (e) {} return op.apply(this, arguments); }
       }.open, op);
-      XMLHttpRequest.prototype.send = mask({
+      XMLHttpRequest.prototype.send = wrapMetadata({
         send(body) { try { assess(xhrUrl.get(this) || "", body, "xhr"); } catch (e) {} return se.apply(this, arguments); }
       }.send, se);
     }
     if (Navigator.prototype.sendBeacon) {
       var sb = Navigator.prototype.sendBeacon;
-      Navigator.prototype.sendBeacon = mask({
+      Navigator.prototype.sendBeacon = wrapMetadata({
         sendBeacon(url, data) { try { assess(url, data, "beacon"); } catch (e) {} return sb.apply(this, arguments); }
       }.sendBeacon, sb);
     }
     if (window.WebSocket) {
       var OrigWS = window.WebSocket;
       var WS = function WebSocket(url, proto) {
+        if (!new.target) throw new TypeError("WebSocket requires new");
         try {
           if (pageHasCredField()) {
             var u = new URL(url, location.href), host = u.hostname.toLowerCase();
@@ -318,7 +329,7 @@
             }
           }
         } catch (e) {}
-        return proto !== undefined ? new OrigWS(url, proto) : new OrigWS(url);
+        return Reflect.construct(OrigWS, Array.from(arguments), new.target);
       };
       // Giữ nguyên hình dạng native: prototype chung, static CONNECTING/OPEN/... với descriptor gốc,
       // prototype.constructor trỏ về wrapper để `ws.constructor === WebSocket`.
@@ -331,7 +342,7 @@
         });
         Object.defineProperty(OrigWS.prototype, "constructor", { value: WS, writable: true, enumerable: false, configurable: true });
       } catch (e) {}
-      window.WebSocket = mask(WS, OrigWS);
+      window.WebSocket = wrapMetadata(WS, OrigWS);
     }
     try {
       var d = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "src");
@@ -340,7 +351,7 @@
           set src(v) { try { assess(String(v), "", "image"); } catch (e) {} return d.set.call(this, v); }
         }, "src").set;
         Object.defineProperty(HTMLImageElement.prototype, "src", {
-          set: mask(setSrc, d.set), get: d.get, enumerable: d.enumerable, configurable: true
+          set: wrapMetadata(setSrc, d.set), get: d.get, enumerable: d.enumerable, configurable: true
         });
       }
     } catch (e) {}

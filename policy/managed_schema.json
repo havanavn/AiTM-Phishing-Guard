@@ -3,7 +3,7 @@
   "properties": {
     "enabled": {
       "title": "Kill switch",
-      "description": "false = tắt toàn bộ phát hiện/cảnh báo ngay lập tức (dùng khi false positive hàng loạt). Mặc định true.",
+      "description": "false = ngừng đăng ký hook và tắt phát hiện/cảnh báo trên lần tải trang tiếp theo. Sau khi policy đồng bộ, tải lại tab đang mở để gỡ hook cũ. Mặc định true.",
       "type": "boolean"
     },
     "blockMode": {
@@ -28,7 +28,7 @@
     },
     "behaviorMode": {
       "title": "Cảnh báo hành vi exfil (ngoài O365)",
-      "description": "'warn' = cảnh báo soft khi phát hiện gửi credential cross-origin / kênh exfil / keystroke streaming (mặc định); 'off' = tắt. Không có chế độ block cứng cho heuristic tổng quát.",
+      "description": "'warn' = cảnh báo soft khi phát hiện gửi credential cross-origin / kênh exfil / keystroke streaming (mặc định); 'off' = ngừng đăng ký hook; cần tải lại tab đang mở sau khi policy đồng bộ. Không có chế độ block cứng cho heuristic tổng quát.",
       "type": "string",
       "enum": [
         "off",
@@ -67,11 +67,6 @@
     "safePortalUrl": {
       "title": "Cổng đăng nhập chính thức",
       "description": "URL đưa user về khi bấm 'Đi tới cổng đăng nhập chính thức'. Mặc định https://login.microsoftonline.com/",
-      "type": "string"
-    },
-    "reportingEndpoint": {
-      "title": "Endpoint telemetry SOC/SIEM",
-      "description": "URL HTTPS nhận POST JSON.",
       "type": "string"
     },
     "telemetrySecret": {

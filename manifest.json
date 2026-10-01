@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "VinSOC AiTM Phishing Guard",
-  "version": "1.7.3",
+  "name": "AiTM Phishing Guard",
+  "version": "1.9.1",
   "description": "Phát hiện và chặn trang đăng nhập Microsoft giả mạo (evilginx / Adversary-in-the-Middle). Bảo vệ credential và 2FA của người dùng.",
   "minimum_chrome_version": "111",
   "permissions": [
     "storage",
-    "alarms"
+    "alarms",
+    "scripting"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -19,27 +20,12 @@
       "matches": [
         "<all_urls>"
       ],
-      "js": [
-        "src/main-world.js"
-      ],
-      "run_at": "document_start",
-      "all_frames": true,
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "src/exfil-hook.js"
-      ],
-      "run_at": "document_start",
-      "all_frames": false,
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "<all_urls>"
+      "exclude_matches": [
+        "https://challenges.cloudflare.com/*",
+        "https://www.google.com/recaptcha/*",
+        "https://recaptcha.net/recaptcha/*",
+        "https://www.recaptcha.net/recaptcha/*",
+        "https://*.hcaptcha.com/*"
       ],
       "js": [
         "src/detector.js",
@@ -51,6 +37,13 @@
     {
       "matches": [
         "<all_urls>"
+      ],
+      "exclude_matches": [
+        "https://challenges.cloudflare.com/*",
+        "https://www.google.com/recaptcha/*",
+        "https://recaptcha.net/recaptcha/*",
+        "https://www.recaptcha.net/recaptcha/*",
+        "https://*.hcaptcha.com/*"
       ],
       "js": [
         "src/detector.js",

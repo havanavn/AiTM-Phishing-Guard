@@ -14,8 +14,8 @@
   if (window.__aitmExfilContentLoaded) return;
   window.__aitmExfilContentLoaded = true;
 
-  var HOST_ID = "vinsoc-exfil-guard-host";
-  var O365_HOST_ID = "vinsoc-aitm-guard-host";
+  var HOST_ID = "aitm-exfil-guard-host";
+  var O365_HOST_ID = "aitm-guard-host";
   var MUTE_KEY = "aitm_exfil_mute";           // chrome.storage.local: { hostname: expiresAtMs }
   var MUTE_TTL = 30 * 24 * 3600 * 1000, MUTE_MAX = 200;
   var THRESHOLD = 5, WEAK_CAP = 3;
@@ -178,12 +178,13 @@
     window.addEventListener("aitm:exfil", function (ev) {
       var d = ev.detail || {};
 
-      // Đã mute (30 ngày hoặc vừa bấm Báo nhầm): không cảnh báo, và không giữ block
-      if (state.muted) { if (d.blocked) proceedForm(); return; }
+      // Không acknowledge: MAIN world để nguyên submit khi đã mute.
+      if (state.muted) return;
 
       // Banner đã hiện/đã đóng: nếu lại có form bị soft-block thì phải hiện lại (không chặn âm thầm)
       if (state.shown) {
         if (d.blocked) {
+          ev.preventDefault();
           state.blocked = true;
           if (!document.getElementById(HOST_ID) && !document.getElementById(O365_HOST_ID)) overlay(cfg, state);
         }
@@ -191,10 +192,10 @@
       }
 
       var r = scoreSignal(d);
-      if (r.score <= 0) { if (d.blocked) proceedForm(); return; }
+      if (r.score <= 0) return;
       state.acc += r.score;
       if (r.kind === "pw" || r.kind === "exfil" || r.kind === "stream") state.strong = true;
-      if (d.blocked) state.blocked = true;
+      if (d.blocked) { ev.preventDefault(); state.blocked = true; }
       state.reasonSet[r.reason] = 1;
       if (d.site) state.siteSet[d.site] = 1;
 
